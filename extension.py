@@ -574,7 +574,8 @@ for wcol in wedge_stat_cols:
     y = proj_df[wcol].to_numpy(dtype=float)
     X = proj_df[u_cols].to_numpy(dtype=float)
 
-    m_lin = sm.OLS(y, X).fit()
+    X_lin = sm.add_constant(X)
+    m_lin = sm.OLS(y, X_lin).fit()
     info_def_lin = 1.0 - float(m_lin.rsquared)
 
     scaler = StandardScaler()
@@ -589,15 +590,16 @@ for wcol in wedge_stat_cols:
     )
     mlp.fit(Xs_nn, y)
     yhat = mlp.predict(Xs_nn)
-    mse = float(np.mean((y - yhat) ** 2))
-    mse_mean = float(np.mean((y - y.mean()) ** 2)) + 1e-12
-    score_nl = 100.0 * (1.0 - mse / mse_mean)
+    sse = float(np.sum((y - yhat) ** 2))
+    tss = float(np.sum((y - y.mean()) ** 2)) + 1e-12
+    R2_nl = 1.0 - sse / tss
+    info_def_nl = 1.0 - R2_nl   # = sse/tss
 
     rows_out.append(
         {
             "model": model_names[wcol],
             "linear_projection": info_def_lin,
-            "nonlinear_projection": score_nl,
+            "nonlinear_projection": info_def_nl,
         }
     )
 
