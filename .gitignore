@@ -1,0 +1,58 @@
+# ======================
+# Python defaults
+# ======================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ======================
+# Virtual environments
+# ======================
+venv/
+.env/
+.envrc/
+
+# ======================
+# IDEs / editors
+# ======================
+.vscode/
+.idea/
+*.swp
+
+# ======================
+# OS files
+# ======================
+.DS_Store
+Thumbs.db
+
+# ======================
+# Logs & data
+# ======================
+*.log
+
+# ======================
+# CUSTOM: folders to ignore
+# ======================
+Tex_Files/
+
+# ======================
+# CUSTOM: specific files
+# ======================
+map.txt
+NiceExplanationBlanchardQuahIdentification.py
