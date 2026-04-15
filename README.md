@@ -1,51 +1,98 @@
 # Replication Paper
 
-Code and data to replicate and extend the main empirical and DSGE results.
+Code to replicate and extend the main empirical and DSGE results of Forni, Gambetti & Sala.
 
-## Core Scripts
-- `Section41.py`
-- `Section42.py`
-- `section43&5.py`
-- `extension.py`
+## Repository layout
 
-Main replication and extension routines. Each corresponding to the section they are named after. 
+```
+.
+├── src/replication/         # installable Python package
+│   ├── var.py               # VAR estimation, Cholesky, IRFs, FEVD, spectral VD
+│   ├── bvar.py              # BVAR (diffuse prior), Table 7 utilities, Figure 7 helpers
+│   ├── factors.py           # EM-PCA, Bai-Ng information criteria
+│   ├── wedges.py            # macroeconomic wedge construction
+│   ├── dsge/
+│   │   ├── lre.py           # generic LRE model utilities (Sims/GENSYS)
+│   │   └── solver.py        # QZ + Newton solver for x_t = F x_{t-1} + G u_t
+│   └── io/
+│       ├── paths.py         # central path registry (RAW_DATA_DIR, TABLES_DIR, …)
+│       ├── fgs.py           # Forni-Gambetti-Sala data loader
+│       ├── fredqd.py        # McCracken-Ng FRED-QD loader + transforms
+│       ├── spf.py           # Philadelphia Fed SPF loaders
+│       └── fred.py          # lightweight FRED HTTP downloader
+│
+├── scripts/                 # entry-point scripts (thin; all logic lives in src/)
+│   ├── run_section_41.py    # Section 4.1 — Example 1 Monte Carlo
+│   ├── run_section_42.py    # Section 4.2 — Example 2 Monte Carlo
+│   ├── run_dsge_solution.py # DSGE model solution → data/processed/dsge_solution.npz
+│   ├── run_section_43_and_5.py  # Section 4.3 + 5 — Table 7 & Figure 7
+│   └── run_extension.py     # Extension — factor model, wedges, info deficiency
+│
+├── data/
+│   ├── raw/                 # gitignored; place raw inputs here (see data/raw/README.md)
+│   └── processed/           # gitignored; intermediate artifacts (e.g. dsge_solution.npz)
+│
+├── results/
+│   ├── figures/             # gitignored; output figures (PNG + PDF)
+│   └── tables/              # gitignored; output tables (CSV)
+│
+├── pyproject.toml
+└── requirements.txt
+```
 
-## Auxiliary Modules
-- `aux_VAR.py`
-- `aux_DSGE.py`
-- `DSGESol.py`
+## Setup
 
-Helper functions and DSGE model solution.
+```bash
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+pip install -e .                  # registers `replication` as importable package
+```
 
-## Data Inputs
-- `2025-12-QD.csv` (McCraken & Ng FRED-MD dataset)
-- `fgs-data.txt` (Replication Data provided by Forni, Gambetti, Sala)
-- `Median_RGDP_Growth.xlsx` (SPF Expectations Data from FRED Philadelphia - Output Growth)
-- `Inflation.xlsx` (SPF Expectations Data from FRED Philadelphia - Inflation)
+## Data
 
-Raw and processed datasets used in estimation.
+Raw data files are **not tracked** in this repository. See `data/raw/README.md`
+for a full description of each file and where to download it. In brief:
 
-## Outputs: Figures
-- `example1_figure1.pdf`, `example1_figure1.png`
-- `example2_figure2.pdf`, `example2_figure2.png`
-- `figure7_replication.pdf`, `figure7_replication.png`
+| File | Description |
+|---|---|
+| `data/raw/2025-12-QD.csv` | McCracken & Ng FRED-QD quarterly macro dataset |
+| `data/raw/fgs-data.txt` | Forni, Gambetti & Sala replication dataset |
+| `data/raw/Inflation.xlsx` | Philadelphia Fed SPF 1-year CPI inflation expectations |
+| `data/raw/Median_RGDP_Growth.xlsx` | Philadelphia Fed SPF 1-year real GDP growth expectations |
 
-Replication and extension figures.
+The extension script also pulls FRED series (`GDPC1`, `PCECC96`, `HOANBS`,
+`WASCUR`, `CPIAUCSL`, `CE16OV`, `GS1`) live over HTTP — no local file needed.
 
-## Outputs: Tables
-- `example1_table1_fevd.csv`
-- `example1_table2_spectral_vd.csv`
-- `example1_table3_deficiency.csv`
-- `example2_table4_deficiency.csv`
-- `extension_table.csv`
-- `table7_replication.csv`
-- `var_residuals_factors.csv`
-- `fred_qd_factors.csv` 
-- `macro_with_spf_expectations.csv`
+The DSGE solver fetches `GDPC1`, `PCECC96`, `GPDIC1` via the FRED API and
+requires a key:
 
-Numerical results and intermediate outputs.
+```bash
+cp .env.example .env
+# edit .env and fill in FRED_API_KEY
+export FRED_API_KEY=your_key_here
+```
 
-## Environment
-- `requirements.txt`
+## Running the pipeline
 
-Python dependencies.
+Scripts are independent but should be run in this order (section 4.3 reads
+the DSGE solution produced in step 3):
+
+```bash
+python scripts/run_section_41.py
+python scripts/run_section_42.py
+python scripts/run_dsge_solution.py        # requires FRED_API_KEY
+python scripts/run_section_43_and_5.py    # requires dsge_solution.npz + fgs-data.txt
+python scripts/run_extension.py           # requires FRED-QD CSV + SPF XLSX files
+```
+
+Figures are saved to `results/figures/` (PNG + PDF).
+Tables are saved to `results/tables/` (CSV).
+
+## Security note
+
+An earlier version of this repository contained a hardcoded FRED API key in
+`DSGESol.py`. **That key has been removed** and replaced with the
+`FRED_API_KEY` environment variable. If you obtained a copy before this
+change, please revoke the old key at https://fredaccount.stlouisfed.org/apikeys
+and generate a new one.

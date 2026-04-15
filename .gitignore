@@ -28,6 +28,9 @@ venv/
 .env/
 .envrc/
 
+# .env file (may contain secrets)
+.env
+
 # ======================
 # IDEs / editors
 # ======================
@@ -42,17 +45,44 @@ venv/
 Thumbs.db
 
 # ======================
-# Logs & data
+# Logs
 # ======================
 *.log
 
 # ======================
-# CUSTOM: folders to ignore
+# Raw / processed data — never commit
 # ======================
-Tex_Files/
+data/raw/*
+!data/raw/README.md
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
 
 # ======================
-# CUSTOM: specific files
+# Generated results — never commit
 # ======================
+results/figures/*
+!results/figures/.gitkeep
+results/tables/*
+!results/tables/.gitkeep
+
+# ======================
+# Binary / large artifacts (loose, e.g. left in repo root)
+# ======================
+*.npz
+*.png
+*.pdf
+*.xlsx
+*.csv
+
+# ======================
+# CUSTOM: excluded files
+# ======================
+Tex_Files/
 map.txt
 NiceExplanationBlanchardQuahIdentification.py
+
+# ======================
+# Other
+# ======================
+.claude/

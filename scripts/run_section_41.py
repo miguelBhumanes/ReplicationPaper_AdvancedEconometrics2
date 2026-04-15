@@ -2,14 +2,12 @@
 Section 4.1
 '''
 
-# === PACKAGES =======
-
 import numpy as np
 import pandas as pd
-from pathlib import Path
 import matplotlib.pyplot as plt
 
-from aux_VAR import var, cholesky, IRFs, fevd_number, spectral_vd_in_band
+from replication.var import var, cholesky, IRFs, fevd_number, spectral_vd_in_band
+from replication.io.paths import TABLES_DIR, FIGURES_DIR
 
 # ==== PARAMETERS ====
 n_sim = 1000
@@ -129,28 +127,17 @@ IRF_median = np.median(IRF_store, axis=0)                 # (H+1, n, n)
 IRF_p05    = np.quantile(IRF_store, 0.05, axis=0)         # (H+1, n, n)
 IRF_p95    = np.quantile(IRF_store, 0.95, axis=0)         # (H+1, n, n)
 
-# Reported outputs: fevd_median_df, spvd_median_df, rho_d_all, rho_v_all, IRF_median, IRF_p05, IRF_p95
-
 # === TRUE FEVD AND SPECTRAL VD =====
 
-# Get the true IRFs by propagating a MIT shock
 def true_IRF_example1(alpha, gamma, beta, H):
     """
     True IRFs for Example 1 DGP:
         y_t = d_t + alpha d_{t-1} - beta r_{t-1}
         r_t = gamma y_t + v_t
-
-    Returns
-    -------
-    IRF_true : array (H+1, 2, 2)
-        Variables: [y, r]
-        Shocks:    [d, v]
     """
     IRF_true = np.zeros((H + 1, 2, 2))
 
-    # Loop over shocks: 0=d, 1=v
     for shock_idx in [0, 1]:
-        # impulse shocks at t=0 only
         d_imp = np.zeros(H + 1)
         v_imp = np.zeros(H + 1)
         if shock_idx == 0:
@@ -158,7 +145,6 @@ def true_IRF_example1(alpha, gamma, beta, H):
         else:
             v_imp[0] = 1.0
 
-        # initial lags
         Ld = 0.0
         Lr = 0.0
 
@@ -169,7 +155,6 @@ def true_IRF_example1(alpha, gamma, beta, H):
             y_path[t] = d_imp[t] + alpha * Ld - beta * Lr
             r_path[t] = gamma * y_path[t] + v_imp[t]
 
-            # update lags
             Ld = d_imp[t]
             Lr = r_path[t]
 
@@ -178,36 +163,25 @@ def true_IRF_example1(alpha, gamma, beta, H):
 
     return IRF_true
 
-# build true IRFs
 IRF_true = true_IRF_example1(alpha=alpha, gamma=gamma, beta=beta, H=H)
 
-# horizons like Table 1
 horizons = [0, 1, 4, 16]
 shock_v = 1  # [d=0, v=1]
 
-# true FEVD for y (var 0) and r (var 1)
 true_fevd_y = [fevd_number(IRF_true, var_idx=0, shock_idx=shock_v, horizon=h) for h in horizons]
 true_fevd_r = [fevd_number(IRF_true, var_idx=1, shock_idx=shock_v, horizon=h) for h in horizons]
 
-# true spectral variance decomposition
-
-# < 2 years
 true_spvd_y_high = spectral_vd_in_band(IRF_true, var_idx=0, shock_idx=shock_v, w_low=w_2y, w_high=np.pi)
 true_spvd_r_high = spectral_vd_in_band(IRF_true, var_idx=1, shock_idx=shock_v, w_low=w_2y, w_high=np.pi)
 
-# 2–8 years
 true_spvd_y_medium = spectral_vd_in_band(IRF_true, var_idx=0, shock_idx=shock_v, w_low=w_8y, w_high=w_2y)
 true_spvd_r_medium = spectral_vd_in_band(IRF_true, var_idx=1, shock_idx=shock_v, w_low=w_8y, w_high=w_2y)
 
-# > 8 years
 true_spvd_y_low = spectral_vd_in_band(IRF_true, var_idx=0, shock_idx=shock_v, w_low=0.0, w_high=w_8y)
 true_spvd_r_low = spectral_vd_in_band(IRF_true, var_idx=1, shock_idx=shock_v, w_low=0.0, w_high=w_8y)
 
 # === COMPUTING INFORMATION SUFFICIENCY / DEFICIENCY METRIC =====
 
-# delta_i(K) = 1 - R^2 from projecting true shock i on VAR(K) reduced-form residuals
-
-# Simulating the data
 np.random.seed(100)
 
 n_obs_ism = 20**4
@@ -229,21 +203,17 @@ for t in range(n_obs_ism):
 
 X_ism = np.column_stack((y_vec_ism, r_vec_ism))
 
-# storage: rows = shocks [d, v], cols = K in [1,4,1000]
 Ks = [1, 4, 1000]
-ism_store = np.zeros((2, len(Ks)))  # will store delta (deficiency); sufficiency = 1-delta
+ism_store = np.zeros((2, len(Ks)))
 
 for k_idx, K in enumerate(Ks):
 
     U, B = var(X_ism, p=K, intercept=False)
 
-    # drop padded rows for projection
-    U_eff = U[K:]              # (T-K, n)
-    d_eff = d[K:]              # (T-K,)
-    v_eff = v[K:]              # (T-K,)
+    U_eff = U[K:]
+    d_eff = d[K:]
+    v_eff = v[K:]
 
-    # project each true shock on reduced-form residuals
-    # (no intercept needed: residuals are mean ~ 0; but harmless if you add one)
     beta_d, *_ = np.linalg.lstsq(U_eff, d_eff, rcond=None)
     d_hat = U_eff @ beta_d
     R2_d = np.var(d_hat) / np.var(d_eff)
@@ -252,23 +222,12 @@ for k_idx, K in enumerate(Ks):
     v_hat = U_eff @ beta_v
     R2_v = np.var(v_hat) / np.var(v_eff)
 
-    # informational deficiency delta = 1 - R^2
-    ism_store[0, k_idx] = 1.0 - R2_d   # for shock d
-    ism_store[1, k_idx] = 1.0 - R2_v   # for shock v
+    ism_store[0, k_idx] = 1.0 - R2_d
+    ism_store[1, k_idx] = 1.0 - R2_v
 
 # === REPORTED FIGURES AND METRICS =====
 
-from pathlib import Path
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-
-outdir = Path(".")
-outdir.mkdir(parents=True, exist_ok=True)
-
-# -----------------------------
-# TABLE 1 (FEVD, horizons 0/1/4/16)  -> CSV
-# -----------------------------
+# TABLE 1 (FEVD, horizons 0/1/4/16)
 h_cols = [str(h) for h in horizons]
 
 table1 = pd.DataFrame(
@@ -280,11 +239,9 @@ table1 = pd.DataFrame(
     ],
     columns=["variable", "stat"] + h_cols,
 )
-table1.to_csv(outdir / "example1_table1_fevd.csv", index=False)
+table1.to_csv(TABLES_DIR / "example1_table1_fevd.csv", index=False)
 
-# -----------------------------
-# TABLE 2 (Spectral VD in 3 bands) -> CSV
-# -----------------------------
+# TABLE 2 (Spectral VD in 3 bands)
 table2 = pd.DataFrame(
     [
         ["y", "median_estimate", *spvd_median_df.loc["y", bands].to_list()],
@@ -294,25 +251,18 @@ table2 = pd.DataFrame(
     ],
     columns=["variable", "stat"] + bands,
 )
-table2.to_csv(outdir / "example1_table2_spectral_vd.csv", index=False)
+table2.to_csv(TABLES_DIR / "example1_table2_spectral_vd.csv", index=False)
 
-# -----------------------------
-# TABLE 3 (Deficiency delta(K)) -> CSV
-# -----------------------------
+# TABLE 3 (Deficiency delta(K))
 table3 = pd.DataFrame(
     ism_store,
     index=["d", "v"],
     columns=[str(K) for K in Ks],
 )
 table3.index.name = "shock"
-table3.to_csv(outdir / "example1_table3_deficiency.csv")
+table3.to_csv(TABLES_DIR / "example1_table3_deficiency.csv")
 
-# -----------------------------
-# FIGURE 1 (IRFs + 90% bands + correlation distributions) -> PNG + PDF
-# Layout: 3 rows x 2 cols
-#   Col 1 = demand shock (d), Col 2 = monetary policy shock (v)
-#   Row 1 = output (y), Row 2 = interest rate (r), Row 3 = histograms
-# -----------------------------
+# FIGURE 1 (IRFs + 90% bands + correlation distributions)
 shock_names = ["Demand shock (d)", "Monetary policy shock (v)"]
 var_names   = ["Output (y)", "Interest rate (r)"]
 
@@ -325,11 +275,9 @@ axs = np.array([[fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])],
                 [fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])],
                 [fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])]])
 
-# Column titles
 axs[0, 0].set_title(shock_names[0], fontsize=12)
 axs[0, 1].set_title(shock_names[1], fontsize=12)
 
-# IRF panels: rows 0-1, cols 0-1
 for col, shock_idx_plot in enumerate([0, 1]):
     for row, var_idx_plot in enumerate([0, 1]):
         ax = axs[row, col]
@@ -339,9 +287,9 @@ for col, shock_idx_plot in enumerate([0, 1]):
         lo_line   = IRF_p05[:, var_idx_plot, shock_idx_plot]
         hi_line   = IRF_p95[:, var_idx_plot, shock_idx_plot]
 
-        ax.fill_between(x, lo_line, hi_line, alpha=0.25, linewidth=0)          # gray band
-        ax.plot(x, med_line, linestyle="--", linewidth=2.0)                    # black dashed (default color)
-        ax.plot(x, true_line, color="red", linestyle="-", linewidth=2.0)       # red solid
+        ax.fill_between(x, lo_line, hi_line, alpha=0.25, linewidth=0)
+        ax.plot(x, med_line, linestyle="--", linewidth=2.0)
+        ax.plot(x, true_line, color="red", linestyle="-", linewidth=2.0)
         ax.axhline(0.0, linewidth=0.8)
 
         if col == 0:
@@ -350,11 +298,8 @@ for col, shock_idx_plot in enumerate([0, 1]):
         ax.set_xlabel("Horizon", fontsize=10)
         ax.tick_params(labelsize=9)
 
-# Legend (only once)
 axs[0, 1].legend(["90% Confidence Interval", "Median IRF","True IRF"],loc="upper right",fontsize=9,frameon=False)
 
-# Histogram panels (row 2)
-# Left: corr(d, identified d); Right: corr(v, identified v)
 hist_bins = 30
 
 axs[2, 0].hist(rho_d_all[np.isfinite(rho_d_all)], bins=hist_bins, edgecolor="white")
@@ -371,15 +316,13 @@ axs[2, 1].tick_params(labelsize=9)
 
 fig.suptitle("Example 1 — Impulse Responses and Shock Recovery", fontsize=14, y=0.98)
 
-# Save
-fig.savefig(outdir / "example1_figure1.png", dpi=300, bbox_inches="tight")
-fig.savefig(outdir / "example1_figure1.pdf", bbox_inches="tight")
+fig.savefig(FIGURES_DIR / "example1_figure1.png", dpi=300, bbox_inches="tight")
+fig.savefig(FIGURES_DIR / "example1_figure1.pdf", bbox_inches="tight")
 plt.close(fig)
 
 print("Saved:")
-print(" - example1_table1_fevd.csv")
-print(" - example1_table2_spectral_vd.csv")
-print(" - example1_table3_deficiency.csv")
-print(" - example1_correlations.csv")
-print(" - example1_figure1.png")
-print(" - example1_figure1.pdf")
+print(f"  {TABLES_DIR / 'example1_table1_fevd.csv'}")
+print(f"  {TABLES_DIR / 'example1_table2_spectral_vd.csv'}")
+print(f"  {TABLES_DIR / 'example1_table3_deficiency.csv'}")
+print(f"  {FIGURES_DIR / 'example1_figure1.png'}")
+print(f"  {FIGURES_DIR / 'example1_figure1.pdf'}")

@@ -1,68 +1,18 @@
-'''
-Section 4.3
-'''
-
-# === PACKAGES AND IMPORTS =======
+"""
+BVAR helpers, informational-deficiency utilities for section 4.3, and
+plotting functions for Figure 7.
+"""
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from aux_VAR import var
-data = np.load("dsge_solution.npz")
-F = data["F"]
-G = data["G"]
 
-# =========================
-# Table 7 replication (simulation + VAR residual projection)
-# ========================
+from replication.var import var as _ols_var_aux
 
-# Choose, for each VAR specification S1-S10, which indices of x_t go into the VAR
-specs_var_indices = {
-    "S1":  [2,1],  # e.g. [idx_TFP, idx_Inv]
-    "S2":  [2,8],
-    "S3":  [2,1,13,3],
-    "S4":  [2,15,1,13,3],
-    "S5":  [2,15,1,13,5],
-    "S6":  [2,15,8,13,3],
-    "S7":  [2,15,8,13,5],
-    "S8":  [2,15,8,13,3,5],
-    "S9":  [2,15,1,8,13,3],
-    "S10": [2,15,1,8,13,3,5],
-}
 
-# Shock ordering in u_t (columns of G) 
-shock_names = [
-    "Mon. pol.",
-    "Gov't exp.",
-    "Wage markup",
-    "Temp. tech.",
-    "News",
-    "Price markup",
-    "Inv. spec."
-]
-
-# Map each Table-7 shock name to the correct index in u_t
-shock_index_map = {
-    "News":         4, 
-    "Temp. tech.":  3,
-    "Price markup": 5,
-    "Wage markup":  2,
-    "Gov't exp.":   1,
-    "Inv. spec.":   6,
-    "Mon. pol.":    0,
-}
-
-# Simulation / VAR settings you requested
-T = 10**4
-K = 10
-burn = 1000
-seed = 100
-intercept = False
-Sigma_u = np.eye(7)  # orthogonal structural shocks
-
-# ------------------------------------------------------------
-# CORE FUNCTIONS
-# ------------------------------------------------------------
+# ==========================================================
+# DSGE simulation
+# ==========================================================
 
 def simulate_state_space(F, G, T, burn=2000, seed=0, Sigma_u=None, x0=None):
     """
@@ -98,6 +48,10 @@ def simulate_state_space(F, G, T, burn=2000, seed=0, Sigma_u=None, x0=None):
     return x_full[burn:], u_full[burn:]
 
 
+# ==========================================================
+# Table 7: informational deficiency for DSGE specifications
+# ==========================================================
+
 def deficiency_table7_for_one_spec(X, U_true, K, intercept=False):
     """
     Given VAR data X (T,n) and true shocks U_true (T,q),
@@ -107,19 +61,14 @@ def deficiency_table7_for_one_spec(X, U_true, K, intercept=False):
     -------
     delta : (q,) array
     """
-    # Estimate reduced-form VAR(K) on X
-    U_hat, B = var(X, p=K, intercept=intercept)
+    U_hat, B = _ols_var_aux(X, p=K, intercept=intercept)
 
-    # Align (drop padded rows)
     U_eff = U_hat[K:]         # (T-K, n)
     Utrue_eff = U_true[K:]    # (T-K, q)
 
-    # Multi-response OLS: Utrue_eff = U_eff @ Beta + err
-    # Beta: (n, q)
     Beta, *_ = np.linalg.lstsq(U_eff, Utrue_eff, rcond=None)
     Uproj = U_eff @ Beta
 
-    # Columnwise R^2 via variance ratio (means ~0 in simulation)
     var_true = np.var(Utrue_eff, axis=0)
     var_proj = np.var(Uproj, axis=0)
     R2 = np.divide(var_proj, var_true, out=np.zeros_like(var_proj), where=var_true > 0)
@@ -137,7 +86,6 @@ def build_table7_dataframe(F, G, specs_var_indices, shock_names, shock_index_map
       columns: Table-7 shock columns (News, Temp. tech., ..., Mon. pol.)
       values: delta_i(K), rounded like the paper table
     """
-    # validate inputs
     missing_specs = [k for k, v in specs_var_indices.items() if v is None]
     if missing_specs:
         raise ValueError(f"Fill specs_var_indices for: {missing_specs}")
@@ -146,110 +94,29 @@ def build_table7_dataframe(F, G, specs_var_indices, shock_names, shock_index_map
     if missing_shocks:
         raise ValueError(f"Fill shock_index_map for: {missing_shocks}")
 
-    # simulate once (common underlying x,u), then slice X per spec
     x, u = simulate_state_space(F, G, T=T, burn=burn, seed=seed, Sigma_u=Sigma_u)
 
-    # reorder/select shocks into Table-7 ordering
     shock_indices = [shock_index_map[name] for name in shock_names]
     u_table7 = u[:, shock_indices]  # (T, 7)
 
-    # compute deltas spec-by-spec
     out = {}
     for sname in ["S1","S2","S3","S4","S5","S6","S7","S8","S9","S10"]:
         idx = specs_var_indices[sname]
         X = x[:, idx]
         delta_vec = deficiency_table7_for_one_spec(X, u_table7, K=K, intercept=intercept)
         out[sname] = delta_vec
-        print(f"{sname} finished") # printing progress
+        print(f"{sname} finished")
 
     df = pd.DataFrame.from_dict(out, orient="index", columns=shock_names)
     df.index.name = "Specification"
     df = df.round(round_decimals)
     return df
 
-# ------------------------------------------------------------
-# RUN + SAVE
-# ------------------------------------------------------------
-
-table7_df = build_table7_dataframe(
-    F=F, G=G,
-    specs_var_indices=specs_var_indices,
-    shock_names=shock_names,
-    shock_index_map=shock_index_map,
-    T=T, K=K, burn=burn, seed=seed,
-    intercept=intercept, Sigma_u=Sigma_u,
-    round_decimals=3
-)
-print(table7_df)
-
-table7_df.to_csv("table7_replication.csv")
-print("Saved: table7_replication.csv")
-
-
-
-# =========================
-# Figure 7 replication (simulation + VAR residual projection)
-# ========================
 
 # ==========================================================
-# Config
+# BVAR helpers (diffuse prior)
 # ==========================================================
-DATA_PATH = "fgs-data.txt"
 
-P_LAGS = 4
-H_IRF = 30
-H_RESTR = 20
-N_DRAWS = 500
-SEED = 100
-
-NEWS_SHOCK_IDX_DSGE = 4
-NEWS_SHOCK_SIZE = 1.0
-
-NEWS_SHOCK_IDX_EMP = 1
-
-USE_INTERCEPT = True
-
-# ==========================================================
-# Data: load + transform to stationary series for the VAR
-# ==========================================================
-def load_and_transform_fgs(path: str) -> pd.DataFrame:
-    df_raw = pd.read_csv(
-        path,
-        sep=r"\s+",
-        header=0,
-        index_col=0,
-        parse_dates=True,
-    ).apply(pd.to_numeric, errors="coerce").sort_index()
-
-    df = df_raw.copy()
-
-    df["dlog_TFP_100"] = 100.0 * np.log(df["TFP"]).diff()
-    df["dlog_Y_100"]   = 100.0 * np.log(df["Y"]).diff()
-    df["dlog_C_100"]   = 100.0 * np.log(df["C"]).diff()
-    df["dlog_I_100"]   = 100.0 * np.log(df["I"]).diff()
-
-    df["H_100"] = df["H"]
-
-    df["pi_100"]      = df["pi"]
-    df["ffr"]         = df["FFR"]
-    df["dlog_W_100"]  = df["W"]
-
-    out = df[[
-        "dlog_TFP_100",
-        "dlog_Y_100",
-        "dlog_C_100",
-        "dlog_I_100",
-        "H_100",
-        "pi_100",
-        "ffr",
-        "dlog_W_100",
-    ]].dropna()
-
-    return out
-
-# ==========================================================
-# VAR/BVAR helpers (diffuse prior)
-# ==========================================================
 def _lagged_regressors(X: np.ndarray, p: int, intercept: bool):
     T, n = X.shape
     Y = X[p:, :]
@@ -362,7 +229,7 @@ def _identify_news_surprise_rotation(B: np.ndarray, Sigma_u: np.ndarray, n: int,
     return P
 
 
-def IRFs(B: np.ndarray, n: int, p: int, P: np.ndarray, H: int, intercept: bool = False):
+def _irfs(B: np.ndarray, n: int, p: int, P: np.ndarray, H: int, intercept: bool = False):
     Psi = _ma_mats_from_var(B, n, p, H, intercept=intercept)
     out = np.zeros((H + 1, n, n))
     for h in range(H + 1):
@@ -394,13 +261,15 @@ def bvar_s10_irfs(X: np.ndarray, p: int = 4, H: int = 30, H_restr: int = 20, ndr
         B = B_ols + (L_V @ Z @ L_S.T)
 
         Pmat = _identify_news_surprise_rotation(B, Sigma_u, n=n, p=p, H_restr=H_restr, intercept=intercept)
-        irf_draws[s] = IRFs(B=B, n=n, p=p, P=Pmat, H=H, intercept=intercept)
+        irf_draws[s] = _irfs(B=B, n=n, p=p, P=Pmat, H=H, intercept=intercept)
 
     return irf_draws
 
+
 # ==========================================================
-# Empirical Figure-7 objects (mean + 68/90 bands) for NEWS shock
+# Empirical Figure 7 objects (mean + 68/90 bands) for NEWS shock
 # ==========================================================
+
 def _summarize_draws(draws_2d: np.ndarray):
     mean = draws_2d.mean(axis=0)
     lo68, hi68 = np.quantile(draws_2d, [0.16, 0.84], axis=0)
@@ -424,9 +293,11 @@ def empirical_figure7_objects(irf_draws: np.ndarray, news_shock_idx: int = 1):
 
     return stats, np.arange(H + 1)
 
+
 # ==========================================================
 # DSGE theoretical IRFs
 # ==========================================================
+
 def dsge_figure7_objects(F: np.ndarray, G: np.ndarray, shock_idx: int, H: int = 30, shock_size: float = 1.0):
     n_state = F.shape[0]
     k_shock = G.shape[1]
@@ -469,10 +340,12 @@ def dsge_figure7_objects(F: np.ndarray, G: np.ndarray, shock_idx: int, H: int = 
     }
     return th
 
+
 # ==========================================================
 # Plot Figure 7
 # ==========================================================
-def plot_figure7(emp_stats: dict, th: dict, h: np.ndarray, H: int = 30):
+
+def plot_figure7(emp_stats: dict, th: dict, h: np.ndarray, H: int = 30, save_path=None):
     fig, axes = plt.subplots(4, 2, figsize=(10.5, 7.0), sharex=True)
     axes = axes.ravel()
 
@@ -507,44 +380,10 @@ def plot_figure7(emp_stats: dict, th: dict, h: np.ndarray, H: int = 30):
     axes[6].set_xlabel("quarters")
 
     plt.tight_layout()
-    plt.savefig("figure7_replication.png", dpi=300, bbox_inches="tight")
-    plt.savefig("figure7_replication.pdf", bbox_inches="tight")
+
+    if save_path is not None:
+        stem = str(save_path).replace(".png", "").replace(".pdf", "")
+        fig.savefig(stem + ".png", dpi=300, bbox_inches="tight")
+        fig.savefig(stem + ".pdf", bbox_inches="tight")
+
     plt.show()
-
-# ==========================================================
-# Run
-# ==========================================================
-bvar_df = load_and_transform_fgs(DATA_PATH)
-
-X_s10 = bvar_df[[
-    "dlog_TFP_100",
-    "dlog_Y_100",
-    "dlog_C_100",
-    "dlog_I_100",
-    "H_100",
-    "ffr",
-    "pi_100",
-]].to_numpy(dtype=float)
-
-irf_draws = bvar_s10_irfs(
-    X_s10,
-    p=P_LAGS,
-    H=H_IRF,
-    H_restr=H_RESTR,
-    ndraws=N_DRAWS,
-    seed=SEED,
-    intercept=USE_INTERCEPT,
-)
-
-emp_stats, h = empirical_figure7_objects(irf_draws, news_shock_idx=NEWS_SHOCK_IDX_EMP)
-
-th = dsge_figure7_objects(
-    F=F,
-    G=G,
-    shock_idx=NEWS_SHOCK_IDX_DSGE,
-    H=H_IRF,
-    shock_size=NEWS_SHOCK_SIZE,
-)
-
-plot_figure7(emp_stats, th, h, H=H_IRF)
-

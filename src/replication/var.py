@@ -6,7 +6,7 @@ import numpy as np
 
 # === FUNCTION TO ESTIMATE VAR =====
 
-# I dont care about confidence intervals, because I am going to bootstrap using this function. 
+# I dont care about confidence intervals, because I am going to bootstrap using this function.
 
 def var(Y, p, intercept=True):
 
@@ -24,7 +24,7 @@ def var(Y, p, intercept=True):
     '''
 
     # The columns are variables, and the rows are time periods
-    T, n = Y.shape 
+    T, n = Y.shape
 
     # Build regressor matrix X
     X = []
@@ -112,7 +112,7 @@ def IRFs(B,n,p,P,H, intercept=True):
     Docstring for IRFs
 
     Inputs
-    
+
     :param B: Coefficient matrix obtained from the function var in this file
     :param n: Number of endogenous variables in the VAR
     :param p: Order of the VAR
@@ -120,12 +120,12 @@ def IRFs(B,n,p,P,H, intercept=True):
     :param H: Maximum IRF horizon
     :param intercept: Boolean. Whether you are passing a B with intercept or not.
 
-    Returns 
+    Returns
 
-    IRF: a tensor. 
+    IRF: a tensor.
     - The first dimension is each of the horizons. From 0 (contemporaneous) until H.
     - The second dimension is each of the variables. In the order passed to VAR.
-    - The third dimension is each of the shocks. A structural shock to a given variable. 
+    - The third dimension is each of the shocks. A structural shock to a given variable.
     '''
 
     A = []
